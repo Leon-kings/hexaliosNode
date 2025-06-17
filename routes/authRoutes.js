@@ -3,14 +3,14 @@ const router = express.Router();
 const authController = require("../controllers/authController");
 
 // Public routes
-router.post("/register", authController.register);
+router.post("/", authController.register);
 router.post("/login", authController.login);
 
 // Protected routes (require authentication)
 // router.use(authController.protect);
 
 // User self-management
-router.get("/", authController.getMe);
+router.get("/24624", authController.getMe);
 router.put("/24762", authController.updateMe);
 router.delete("/24762", authController.deleteMe);
 
