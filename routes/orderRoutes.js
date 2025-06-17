@@ -1,10 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const orderController = require('../controllers/orderController');
-const { validateOrder } = require('../middlewares/validationMiddleware');
+
 
 // Create a new order
-router.post('/', validateOrder, orderController.createOrder);
+router.post('/', orderController.createOrder);
 
 // Get order statistics
 router.get('/statistics', orderController.getOrderStatistics);
