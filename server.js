@@ -6,7 +6,7 @@ const config = require('./config');
 
 // Import routes
 const orderRoutes = require('./routes/orderRoutes');
-const productRoutes = require('./routes/productRoutes');
+// const productRoutes = require('./routes/productRoutes');
 const authRoutes = require('./routes/authRoutes');
 const statsRoutes = require('./routes/statsRoutes');
 const subscriptionRouter = require('./routes/subscriptionRoutes');
@@ -31,7 +31,7 @@ mongoose.connect(config.mongoURI, {
 
 // Routes
 app.use('/api/orders', orderRoutes);
-app.use('/api/products', productRoutes);
+// app.use('/api/products', productRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/v1/stats', statsRoutes);
 app.use('/subscriptions', subscriptionRouter);
