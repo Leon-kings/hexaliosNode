@@ -30,10 +30,10 @@ mongoose.connect(config.mongoURI, {
 });
 
 // Routes
-app.use('/api/orders', orderRoutes);
+app.use('/orders', orderRoutes);
 // app.use('/api/products', productRoutes);
-app.use('/api/auth', authRoutes);
-app.use('/api/v1/stats', statsRoutes);
+app.use('/auth', authRoutes);
+app.use('/v1/stats', statsRoutes);
 app.use('/subscriptions', subscriptionRouter);
 app.use('/bookings', bookingRouter);
 
