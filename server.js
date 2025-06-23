@@ -22,10 +22,7 @@ app.use(cors());
 app.use(express.json());
 
 // Database connection
-mongoose.connect(config.mongoURI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true
-})
+mongoose.connect(config.mongoURI)
 .then(() => console.log('MongoDB connected successfully'))
 .catch(err => {
   console.error('MongoDB connection error:', err);
