@@ -1,33 +1,32 @@
 const config = require('../config');
-const stripe = require('stripe')(config.stripe.secretKey);
+const stripe = require('stripe');
+const catchAsync = require('../utils/catchAsync');
+const AppError = require('../utils/AppError');
 
-exports.processPayment = async ({ amount, paymentMethod, customerEmail }) => {
-  try {
-    // For demo purposes, we're only implementing Stripe
-    // In a real app, you would have different processors for different methods
-    if (paymentMethod !== 'credit-card') {
-      return { success: false, message: 'Payment method not supported' };
-    }
+// Process payment
+exports.processPayment = catchAsync(async (req, res) => {
+  const { amount, paymentMethod, customerEmail } = req.body;
 
-    // Create a payment intent with Stripe
-    const paymentIntent = await stripe.paymentIntents.create({
-      amount: Math.round(amount * 100), // convert to cents
-      currency: 'usd',
-      receipt_email: customerEmail,
-      description: 'E-commerce purchase',
-      metadata: { integration_check: 'accept_a_payment' }
-    });
+  // For demo purposes, we're only implementing Stripe
+  // In a real app, you would have different processors for different methods
+  if (paymentMethod !== 'credit-card') {
+    throw new AppError('Payment method not supported', 400);
+  }
 
-    return { 
-      success: true, 
+  // Create a payment intent with Stripe
+  const paymentIntent = await stripe.paymentIntents.create({
+    amount: Math.round(amount * 100), // convert to cents
+    currency: 'usd',
+    receipt_email: customerEmail,
+    description: 'E-commerce purchase',
+    metadata: { integration_check: 'accept_a_payment' }
+  });
+
+  res.status(200).json({
+    status: 'success',
+    data: {
       paymentId: paymentIntent.id,
       clientSecret: paymentIntent.client_secret
-    };
-  } catch (error) {
-    console.error('Payment processing error:', error);
-    return { 
-      success: false, 
-      message: error.message || 'Payment processing failed' 
-    };
-  }
-};
+    }
+  });
+});

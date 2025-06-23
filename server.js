@@ -11,6 +11,8 @@ const authRoutes = require('./routes/authRoutes');
 const statsRoutes = require('./routes/statsRoutes');
 const subscriptionRouter = require('./routes/subscriptionRoutes');
 const bookingRouter = require('./routes/bookingRoutes');
+const paymentRoutes = require('./routes/paymentRoutes');
+const contactRutes = require('./routes/contactRoutes')
 
 const app = express();
 
@@ -36,6 +38,8 @@ app.use('/auth', authRoutes);
 app.use('/v1/stats', statsRoutes);
 app.use('/subscriptions', subscriptionRouter);
 app.use('/bookings', bookingRouter);
+app.use('/api/v1/payments', paymentRoutes);
+app.use('/contacts', contactRutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

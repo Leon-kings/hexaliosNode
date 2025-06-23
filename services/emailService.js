@@ -1,14 +1,13 @@
 const nodemailer = require('nodemailer');
-const pug = require('pug');
-const { convert } = require('html-to-text');
+const { htmlToText } = require('html-to-text');
 const config = require('../config');
 
 class Email {
   constructor(user, url) {
     this.to = user.email;
     this.firstName = user.name?.split(' ')[0] || '';
-    this.from = `Admin <${config.email.from}>`;
     this.url = url;
+    this.from = `Bookings <${config.email.from}>`;
     this.user = user; // Store user for booking methods
   }
 
@@ -75,7 +74,7 @@ class Email {
         to: this.to,
         subject,
         html,
-        text: convert(html)
+        text: htmlToText(html)
       };
 
       await this.newTransport().sendMail(mailOptions);
@@ -121,8 +120,8 @@ class Email {
   }
 
   // Booking confirmation email
-  async sendBookingConfirmation() {
-    const formattedDate = new Date(this.user.date).toLocaleString('en-US', {
+  async sendBookingConfirmation(booking) {
+    const formattedDate = new Date(booking.bookingDetails.preferredDate).toLocaleString('en-US', {
       weekday: 'long',
       year: 'numeric',
       month: 'long',
@@ -131,15 +130,53 @@ class Email {
       minute: '2-digit'
     });
 
-    await this.send(
-      'Booking Confirmation',
-      `Hi ${this.firstName}, your booking for ${formattedDate} has been received. We'll contact you shortly to confirm.`,
-      { 
-        type: 'success',
-        actionUrl: this.url || config.websiteUrl,
-        actionText: 'View Your Bookings'
-      }
-    );
+    const html = this.renderTemplate('bookingConfirmation', {
+      firstName: this.firstName,
+      subject: 'Booking Confirmation',
+      serviceTitle: booking.service.title,
+      bookingDate: formattedDate,
+      status: booking.bookingDetails.status,
+      notes: booking.bookingDetails.notes,
+      url: this.url
+    });
+
+    await this.newTransport().sendMail({
+      from: this.from,
+      to: this.to,
+      subject: 'Booking Confirmation',
+      html,
+      text: htmlToText(html)
+    });
+  }
+
+  // Booking update email
+  async sendBookingUpdate(booking, message) {
+    const formattedDate = new Date(booking.bookingDetails.preferredDate).toLocaleString('en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+
+    const html = this.renderTemplate('bookingUpdate', {
+      firstName: this.firstName,
+      subject: 'Booking Updated',
+      serviceTitle: booking.service.title,
+      bookingDate: formattedDate,
+      status: booking.bookingDetails.status,
+      message,
+      url: this.url
+    });
+
+    await this.newTransport().sendMail({
+      from: this.from,
+      to: this.to,
+      subject: 'Booking Updated',
+      html,
+      text: htmlToText(html)
+    });
   }
 
   // Contact form confirmation email
@@ -149,6 +186,39 @@ class Email {
       `Hi ${this.firstName}, thank you for contacting us. We've received your message and will get back to you soon.`,
       { type: 'info' }
     );
+  }
+
+  // Render booking templates
+  renderTemplate(template, vars) {
+    const templates = {
+      bookingConfirmation: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <h2 style="color: #333;">${vars.subject}</h2>
+          <p>Hi ${vars.firstName},</p>
+          <p>Your booking for <strong>${vars.serviceTitle}</strong> on <strong>${vars.bookingDate}</strong> has been confirmed.</p>
+          <p>Status: <strong style="color: #4CAF50;">${vars.status}</strong></p>
+          ${vars.notes ? `<p>Notes: ${vars.notes}</p>` : ''}
+          <a href="${vars.url}" style="display: inline-block; margin-top: 20px; padding: 10px 20px; background-color: #4CAF50; color: white; text-decoration: none; border-radius: 5px;">
+            View Booking Details
+          </a>
+        </div>
+      `,
+      bookingUpdate: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <h2 style="color: #333;">${vars.subject}</h2>
+          <p>Hi ${vars.firstName},</p>
+          <p>Your booking for <strong>${vars.serviceTitle}</strong> has been updated.</p>
+          <p><strong>New Status:</strong> ${vars.status}</p>
+          <p><strong>Scheduled Date:</strong> ${vars.bookingDate}</p>
+          ${vars.message ? `<p>${vars.message}</p>` : ''}
+          <a href="${vars.url}" style="display: inline-block; margin-top: 20px; padding: 10px 20px; background-color: #2196F3; color: white; text-decoration: none; border-radius: 5px;">
+            View Changes
+          </a>
+        </div>
+      `
+    };
+
+    return templates[template] || templates.bookingConfirmation;
   }
 
   // Order confirmation email
@@ -193,7 +263,7 @@ class Email {
         to: order.customer.email,
         subject: `Order Confirmation #${order._id || 'N/A'}`,
         html,
-        text: convert(html)
+        text: htmlToText(html)
       });
     } catch (error) {
       console.error('Error sending order confirmation:', error);
@@ -251,7 +321,7 @@ class Email {
           to: config.adminEmail,
           subject: `New Order #${order._id}`,
           html,
-          text: convert(html)
+          text: htmlToText(html)
         });
       } else {
         // Handle user registration notification
@@ -282,7 +352,7 @@ class Email {
           to: config.adminEmail,
           subject: 'New User Registration',
           html,
-          text: convert(html)
+          text: htmlToText(html)
         });
       }
     } catch (error) {
@@ -294,7 +364,7 @@ class Email {
   // Admin booking notification
   static async sendAdminBookingNotification(booking) {
     try {
-      const formattedDate = new Date(booking.date).toLocaleString('en-US', {
+      const formattedDate = new Date(booking.bookingDetails.preferredDate).toLocaleString('en-US', {
         weekday: 'long',
         year: 'numeric',
         month: 'long',
@@ -309,15 +379,16 @@ class Email {
             New Booking Request
           </div>
           <div style="padding: 0 15px 15px; color: #333;">
-            <p><strong>Customer:</strong> ${booking.name}</p>
-            <p><strong>Email:</strong> ${booking.email}</p>
-            <p><strong>Phone:</strong> ${booking.phone}</p>
+            <p><strong>Customer:</strong> ${booking.customer.name}</p>
+            <p><strong>Email:</strong> ${booking.customer.email}</p>
+            <p><strong>Phone:</strong> ${booking.customer.phone}</p>
+            <p><strong>Service:</strong> ${booking.service.title}</p>
             <p><strong>Date:</strong> ${formattedDate}</p>
-            ${booking.notes ? `<p><strong>Notes:</strong> ${booking.notes}</p>` : ''}
-            <p><strong>Status:</strong> ${booking.status}</p>
+            ${booking.bookingDetails.notes ? `<p><strong>Notes:</strong> ${booking.bookingDetails.notes}</p>` : ''}
+            <p><strong>Status:</strong> ${booking.bookingDetails.status}</p>
           </div>
           <div style="margin-top: 20px; text-align: center;">
-            <a href="${config.adminDashboardUrl}" style="display: inline-block; padding: 10px 20px; background-color: #2196F3; color: white; text-decoration: none; border-radius: 4px;">
+            <a href="${config.websiteUrl}/admin/bookings/${booking._id}" style="display: inline-block; padding: 10px 20px; background-color: #2196F3; color: white; text-decoration: none; border-radius: 4px;">
               View in Dashboard
             </a>
           </div>
@@ -337,7 +408,7 @@ class Email {
         to: config.adminEmail,
         subject: `New Booking: ${formattedDate}`,
         html,
-        text: convert(html)
+        text: htmlToText(html)
       });
 
     } catch (error) {
@@ -383,7 +454,7 @@ class Email {
         to: config.adminEmail,
         subject: `New Contact: ${contact.subject}`,
         html,
-        text: convert(html)
+        text: htmlToText(html)
       });
     } catch (error) {
       console.error('Error sending contact notification:', error);

@@ -1,54 +1,37 @@
 const mongoose = require('mongoose');
+const validator = require('validator');
 
 const bookingSchema = new mongoose.Schema({
-  name: {
-    type: String,
-    required: [true, 'Please provide your name'],
-    trim: true
+  service: {
+    id: { type: String, required: true },
+    title: { type: String, required: true },
+    duration: { type: Number, min: 5 },
+    price: { type: Number, min: 0 }
   },
-  email: {
-    type: String,
-    required: [true, 'Please provide your email'],
-    lowercase: true,
-    trim: true,
-    validate: {
-      validator: function(v) {
-        return /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/.test(v);
-      },
-      message: 'Please provide a valid email'
+  customer: {
+    name: { type: String, required: true },
+    email: { 
+      type: String, 
+      required: true,
+      validate: [validator.isEmail, 'Invalid email']
+    },
+    phone: { type: String, required: true }
+  },
+  bookingDetails: {
+    preferredDate: { 
+      type: Date, 
+      required: true,
+      validate: {
+        validator: v => v > Date.now(),
+        message: 'Date must be in future'
+      }
+    },
+    status: {
+      type: String,
+      enum: ['pending', 'confirmed', 'cancelled', 'completed'],
+      default: 'pending'
     }
-  },
-  phone: {
-    type: String,
-    required: [true, 'Please provide your phone number'],
-    trim: true
-  },
-  date: {
-    type: Date,
-    required: [true, 'Please provide a booking date'],
-    min: [new Date(), 'Booking date must be in the future']
-  },
-  notes: {
-    type: String,
-    trim: true,
-    maxlength: [500, 'Notes cannot exceed 500 characters']
-  },
-  status: {
-    type: String,
-    enum: ['pending', 'confirmed', 'cancelled'],
-    default: 'pending'
-  },
-  createdAt: {
-    type: Date,
-    default: Date.now
   }
-});
+}, { timestamps: true });
 
-// Indexes for faster queries
-bookingSchema.index({ email: 1 });
-bookingSchema.index({ date: 1 });
-bookingSchema.index({ status: 1 });
-
-const Booking = mongoose.model('Booking', bookingSchema);
-
-module.exports = Booking;
+module.exports = mongoose.model('Booking', bookingSchema);
