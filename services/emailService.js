@@ -463,6 +463,7 @@ class Email {
   }
 }
 
+
 // Helper functions
 const sendRegistrationEmail = async (user) => {
   try {

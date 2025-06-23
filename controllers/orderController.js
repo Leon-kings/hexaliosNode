@@ -1,127 +1,168 @@
 const Order = require('../models/Order');
-const Product = require('../models/Product');
-const { sendOrderConfirmationEmail, sendAdminNotificationEmail } = require('../services/emailService');
-const { processPayment } = require('../services/paymentService');
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+const { sendOrderConfirmation, sendAdminNotification } = require('../services/emailService');
 
+// Create order with Stripe payment
 exports.createOrder = async (req, res) => {
   try {
-    const { customer, paymentMethod, products, totalPrice, commodityPrice } = req.body;
+    const { customer, products, paymentMethodId } = req.body;
+    const totalPrice = products.reduce((sum, item) => sum + (item.price * item.quantity), 0);
 
-    // Validate required fields
-    if (!customer || !customer.name || !customer.email || !customer.address || 
-        !paymentMethod || !products || !products.length || !totalPrice || !commodityPrice) {
-      return res.status(400).json({ success: false, message: 'Missing required fields' });
-    }
-
-    // Verify product availability and quantities
-    for (const item of products) {
-      const product = await Product.findById(item.productId);
-      if (!product) {
-        return res.status(400).json({ success: false, message: `Product ${item.name} not found` });
-      }
-      if (product.stock < item.quantity) {
-        return res.status(400).json({ 
-          success: false, 
-          message: `Insufficient stock for ${item.name}. Available: ${product.stock}`
-        });
-      }
-    }
-
-    // Process payment
-    const paymentResult = await processPayment({
-      amount: totalPrice,
-      paymentMethod,
-      customerEmail: customer.email
+    // Create Stripe payment
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: Math.round(totalPrice * 100),
+      currency: 'usd',
+      payment_method: paymentMethodId,
+      confirm: true,
+      metadata: { integration_check: 'accept_a_payment' }
     });
 
-    if (!paymentResult.success) {
-      return res.status(400).json({ 
-        success: false, 
-        message: paymentResult.message || 'Payment processing failed'
-      });
-    }
-
-    // Create the order
+    // Create order
     const order = new Order({
       customer,
-      paymentMethod,
       products,
-      totalPrice,
-      commodityPrice,
-      paymentStatus: 'completed'
+      payment: {
+        paymentId: paymentIntent.id,
+        method: 'card',
+        amount: totalPrice,
+        status: paymentIntent.status === 'succeeded' ? 'paid' : 'failed'
+      },
+      totalPrice
     });
 
     await order.save();
 
-    // Update product stocks
-    for (const item of products) {
-      await Product.findByIdAndUpdate(item.productId, { 
-        $inc: { stock: -item.quantity },
-        $inc: { salesCount: item.quantity }
-      });
+    // Send emails if payment succeeded
+    if (paymentIntent.status === 'succeeded') {
+      await sendOrderConfirmation(order);
+      await sendAdminNotification(order);
     }
 
-    // Send emails
-    await sendOrderConfirmationEmail(order);
-    await sendAdminNotificationEmail(order);
-
-    res.status(201).json({ 
-      success: true, 
-      message: 'Order created successfully', 
-      order 
+    res.status(201).json({
+      success: paymentIntent.status === 'succeeded',
+      data: order,
+      message: paymentIntent.status === 'succeeded' ? 
+        'Order created successfully' : 'Payment failed'
     });
-
   } catch (error) {
-    console.error('Order creation error:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Internal server error', 
-      error: error.message 
+    console.error('Create order error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Server error'
     });
   }
 };
 
-exports.getOrderStatistics = async (req, res) => {
+// Get all orders
+exports.getOrders = async (req, res) => {
   try {
-    const statistics = await Order.getStatistics();
-    res.json({ success: true, statistics });
-  } catch (error) {
-    console.error('Statistics error:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Failed to get statistics', 
-      error: error.message 
-    });
-  }
-};
+    const { status, startDate, endDate } = req.query;
+    const filter = {};
+    
+    if (status) filter['payment.status'] = status;
+    if (startDate || endDate) {
+      filter.createdAt = {};
+      if (startDate) filter.createdAt.$gte = new Date(startDate);
+      if (endDate) filter.createdAt.$lte = new Date(endDate);
+    }
 
-exports.getAllOrders = async (req, res) => {
-  try {
-    const orders = await Order.find().sort({ createdAt: -1 });
-    res.json({ success: true, orders });
+    const orders = await Order.find(filter).sort({ createdAt: -1 });
+    res.status(200).json({
+      success: true,
+      count: orders.length,
+      data: orders
+    });
   } catch (error) {
     console.error('Get orders error:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Failed to get orders', 
-      error: error.message 
+    res.status(500).json({
+      success: false,
+      message: 'Server error'
     });
   }
 };
 
-exports.getOrderById = async (req, res) => {
+// Get order statistics
+exports.getOrderStats = async (req, res) => {
   try {
-    const order = await Order.findById(req.params.id);
-    if (!order) {
-      return res.status(404).json({ success: false, message: 'Order not found' });
-    }
-    res.json({ success: true, order });
+    const { days = 30 } = req.query;
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - parseInt(days));
+
+    const stats = await Order.aggregate([
+      {
+        $match: {
+          createdAt: { $gte: startDate }
+        }
+      },
+      {
+        $group: {
+          _id: null,
+          totalOrders: { $sum: 1 },
+          totalRevenue: { $sum: '$payment.amount' },
+          paidOrders: {
+            $sum: { $cond: [{ $eq: ['$payment.status', 'paid'] }, 1, 0] }
+          },
+          failedOrders: {
+            $sum: { $cond: [{ $eq: ['$payment.status', 'failed'] }, 1, 0] }
+          }
+        }
+      },
+      {
+        $project: {
+          _id: 0,
+          totalOrders: 1,
+          totalRevenue: 1,
+          paidOrders: 1,
+          failedOrders: 1,
+          successRate: {
+            $cond: [
+              { $eq: ['$totalOrders', 0] },
+              0,
+              { $divide: ['$paidOrders', '$totalOrders'] }
+            ]
+          }
+        }
+      }
+    ]);
+
+    const dailyStats = await Order.aggregate([
+      {
+        $match: {
+          createdAt: { $gte: startDate },
+          'payment.status': 'paid'
+        }
+      },
+      {
+        $group: {
+          _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } },
+          date: { $first: '$createdAt' },
+          dailyRevenue: { $sum: '$payment.amount' },
+          orderCount: { $sum: 1 }
+        }
+      },
+      { $sort: { _id: 1 } }
+    ]);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        summary: stats[0] || {
+          totalOrders: 0,
+          totalRevenue: 0,
+          paidOrders: 0,
+          failedOrders: 0,
+          successRate: 0
+        },
+        dailyStats
+      }
+    });
   } catch (error) {
-    console.error('Get order error:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Failed to get order', 
-      error: error.message 
+    console.error('Get order stats error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error'
     });
   }
 };
+
+// Other CRUD operations (getOrder, updateOrder, deleteOrder) would be here...

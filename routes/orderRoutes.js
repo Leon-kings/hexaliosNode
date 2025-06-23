@@ -1,18 +1,16 @@
 const express = require('express');
 const router = express.Router();
 const orderController = require('../controllers/orderController');
+// const { protect, authorize } = require('../middleware/auth');
 
-
-// Create a new order
+// Public routes
 router.post('/', orderController.createOrder);
 
-// Get order statistics
-router.get('/statistics', orderController.getOrderStatistics);
+// Protected admin routes
 
-// Get all orders
-router.get('/', orderController.getAllOrders);
-
-// Get single order
-router.get('/:id', orderController.getOrderById);
+// router.use(protect, authorize('admin'));
+router.get('/', orderController.getOrders);
+router.get('/stats', orderController.getOrderStats);
+// Add other CRUD routes as needed
 
 module.exports = router;
