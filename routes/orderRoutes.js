@@ -1,16 +1,16 @@
 const express = require('express');
 const router = express.Router();
 const orderController = require('../controllers/orderController');
-// const { protect, authorize } = require('../middleware/auth');
 
-// Public routes
+// CRUD operations
 router.post('/', orderController.createOrder);
+router.get('/', orderController.getAllOrders);
+router.get('/:id', orderController.getOrderById);
+router.put('/:id', orderController.updateOrder);
+router.delete('/:id', orderController.deleteOrder);
 
-// Protected admin routes
-
-// router.use(protect, authorize('admin'));
-router.get('/', orderController.getOrders);
-router.get('/stats', orderController.getOrderStats);
-// Add other CRUD routes as needed
+// Statistics
+router.get('/stats/payments', orderController.getPaymentStats);
+router.get('/stats/revenue', orderController.getDailyRevenue);
 
 module.exports = router;

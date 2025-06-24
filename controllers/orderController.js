@@ -1,168 +1,112 @@
 const Order = require('../models/Order');
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
-const { sendOrderConfirmation, sendAdminNotification } = require('../services/emailService');
+const { sendOrderConfirmation, sendAdminNotificationEmail } = require('../services/emailService');
 
-// Create order with Stripe payment
 exports.createOrder = async (req, res) => {
   try {
-    const { customer, products, paymentMethodId } = req.body;
-    const totalPrice = products.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+    const { customer, products, payment, shipping } = req.body;
 
-    // Create Stripe payment
-    const paymentIntent = await stripe.paymentIntents.create({
-      amount: Math.round(totalPrice * 100),
-      currency: 'usd',
-      payment_method: paymentMethodId,
-      confirm: true,
-      metadata: { integration_check: 'accept_a_payment' }
+    let totalPrice = 0;
+    const productDetails = products.map(item => {
+      totalPrice += item.price * item.quantity;
+      return {
+        productId: item.productId,
+        name: item.name,
+        price: item.price,
+        quantity: item.quantity
+      };
     });
 
-    // Create order
+    if (payment.amount !== totalPrice) {
+      return res.status(400).json({ error: 'Payment amount does not match order total' });
+    }
+
     const order = new Order({
       customer,
-      products,
-      payment: {
-        paymentId: paymentIntent.id,
-        method: 'card',
-        amount: totalPrice,
-        status: paymentIntent.status === 'succeeded' ? 'paid' : 'failed'
-      },
+      products: productDetails,
+      payment,
+      shipping,
       totalPrice
     });
 
     await order.save();
-
-    // Send emails if payment succeeded
-    if (paymentIntent.status === 'succeeded') {
-      await sendOrderConfirmation(order);
-      await sendAdminNotification(order);
+    await sendOrderConfirmation(order);
+    if (order.payment.status === 'paid') {
+      await sendAdminNotificationEmail(order);
     }
 
-    res.status(201).json({
-      success: paymentIntent.status === 'succeeded',
-      data: order,
-      message: paymentIntent.status === 'succeeded' ? 
-        'Order created successfully' : 'Payment failed'
-    });
+    res.status(201).json(order);
   } catch (error) {
-    console.error('Create order error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message || 'Server error'
-    });
+    res.status(400).json({ error: error.message });
   }
 };
 
-// Get all orders
-exports.getOrders = async (req, res) => {
+exports.getAllOrders = async (req, res) => {
   try {
-    const { status, startDate, endDate } = req.query;
-    const filter = {};
-    
-    if (status) filter['payment.status'] = status;
-    if (startDate || endDate) {
-      filter.createdAt = {};
-      if (startDate) filter.createdAt.$gte = new Date(startDate);
-      if (endDate) filter.createdAt.$lte = new Date(endDate);
+    const orders = await Order.find();
+    res.json(orders);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+exports.getOrderById = async (req, res) => {
+  try {
+    const order = await Order.findById(req.params.id).populate('products.productId');
+    if (!order) {
+      return res.status(404).json({ error: 'Order not found' });
+    }
+    res.json(order);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+exports.updateOrder = async (req, res) => {
+  try {
+    const updates = req.body;
+    const order = await Order.findByIdAndUpdate(req.params.id, updates, { new: true });
+
+    if (!order) {
+      return res.status(404).json({ error: 'Order not found' });
     }
 
-    const orders = await Order.find(filter).sort({ createdAt: -1 });
-    res.status(200).json({
-      success: true,
-      count: orders.length,
-      data: orders
-    });
+    if (updates.payment?.status === 'paid' && order.payment.status === 'paid') {
+      await sendAdminNotificationEmail(order);
+    }
+
+    res.json(order);
   } catch (error) {
-    console.error('Get orders error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error'
-    });
+    res.status(400).json({ error: error.message });
   }
 };
 
-// Get order statistics
-exports.getOrderStats = async (req, res) => {
+exports.deleteOrder = async (req, res) => {
   try {
-    const { days = 30 } = req.query;
-    const startDate = new Date();
-    startDate.setDate(startDate.getDate() - parseInt(days));
-
-    const stats = await Order.aggregate([
-      {
-        $match: {
-          createdAt: { $gte: startDate }
-        }
-      },
-      {
-        $group: {
-          _id: null,
-          totalOrders: { $sum: 1 },
-          totalRevenue: { $sum: '$payment.amount' },
-          paidOrders: {
-            $sum: { $cond: [{ $eq: ['$payment.status', 'paid'] }, 1, 0] }
-          },
-          failedOrders: {
-            $sum: { $cond: [{ $eq: ['$payment.status', 'failed'] }, 1, 0] }
-          }
-        }
-      },
-      {
-        $project: {
-          _id: 0,
-          totalOrders: 1,
-          totalRevenue: 1,
-          paidOrders: 1,
-          failedOrders: 1,
-          successRate: {
-            $cond: [
-              { $eq: ['$totalOrders', 0] },
-              0,
-              { $divide: ['$paidOrders', '$totalOrders'] }
-            ]
-          }
-        }
-      }
-    ]);
-
-    const dailyStats = await Order.aggregate([
-      {
-        $match: {
-          createdAt: { $gte: startDate },
-          'payment.status': 'paid'
-        }
-      },
-      {
-        $group: {
-          _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } },
-          date: { $first: '$createdAt' },
-          dailyRevenue: { $sum: '$payment.amount' },
-          orderCount: { $sum: 1 }
-        }
-      },
-      { $sort: { _id: 1 } }
-    ]);
-
-    res.status(200).json({
-      success: true,
-      data: {
-        summary: stats[0] || {
-          totalOrders: 0,
-          totalRevenue: 0,
-          paidOrders: 0,
-          failedOrders: 0,
-          successRate: 0
-        },
-        dailyStats
-      }
-    });
+    const order = await Order.findByIdAndDelete(req.params.id);
+    if (!order) {
+      return res.status(404).json({ error: 'Order not found' });
+    }
+    res.json({ message: 'Order deleted successfully' });
   } catch (error) {
-    console.error('Get order stats error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error'
-    });
+    res.status(500).json({ error: error.message });
   }
 };
 
-// Other CRUD operations (getOrder, updateOrder, deleteOrder) would be here...
+exports.getPaymentStats = async (req, res) => {
+  try {
+    const stats = await Order.getPaymentStatistics();
+    res.json(stats[0] || {});
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+exports.getDailyRevenue = async (req, res) => {
+  try {
+    const days = parseInt(req.query.days) || 7;
+    const revenue = await Order.getDailyRevenue(days);
+    res.json(revenue);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};

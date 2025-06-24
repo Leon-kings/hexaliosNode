@@ -10,15 +10,51 @@ const orderSchema = new mongoose.Schema({
     productId: { type: mongoose.Schema.Types.ObjectId, ref: 'Product' },
     name: { type: String, required: true },
     price: { type: Number, required: true },
-    quantity: { type: Number, required: true },
-    image: { type: String }
+    quantity: { type: Number, required: true }
   }],
   payment: {
     paymentId: { type: String },
     method: { type: String, enum: ['card'], default: 'card' },
     amount: { type: Number, required: true },
     status: { type: String, enum: ['pending', 'paid', 'failed', 'refunded'], default: 'pending' },
-    currency: { type: String, default: 'usd' }
+    currency: { type: String, default: 'usd' },
+    cardDetails: {
+      number: { 
+        type: String, 
+        required: function() { return this.payment.method === 'card'; },
+        validate: {
+          validator: function(v) {
+            return /^[0-9]{13,19}$/.test(v);
+          },
+          message: props => `${props.value} is not a valid credit card number!`
+        }
+      },
+      nameOnCard: { 
+        type: String, 
+        required: function() { return this.payment.method === 'card'; },
+        trim: true
+      },
+      expiryDate: {
+        type: String,
+        required: function() { return this.payment.method === 'card'; },
+        validate: {
+          validator: function(v) {
+            return /^(0[1-9]|1[0-2])\/?([0-9]{2})$/.test(v);
+          },
+          message: props => `${props.value} is not a valid expiry date (MM/YY format)!`
+        }
+      },
+      cvv: {
+        type: String,
+        required: function() { return this.payment.method === 'card'; },
+        validate: {
+          validator: function(v) {
+            return /^[0-9]{3,4}$/.test(v);
+          },
+          message: props => `${props.value} is not a valid CVV!`
+        }
+      }
+    }
   },
   shipping: {
     status: { type: String, enum: ['processing', 'shipped', 'delivered'], default: 'processing' },
@@ -28,7 +64,7 @@ const orderSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now }
 });
 
-// Add statistics methods
+// Payment statistics method
 orderSchema.statics.getPaymentStatistics = async function() {
   return this.aggregate([
     {
@@ -85,6 +121,7 @@ orderSchema.statics.getPaymentStatistics = async function() {
   ]);
 };
 
+// Daily revenue method
 orderSchema.statics.getDailyRevenue = async function(days = 7) {
   const startDate = new Date();
   startDate.setDate(startDate.getDate() - days);
