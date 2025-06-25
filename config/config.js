@@ -44,7 +44,7 @@ const config = {
 };
 
 // Validation for required environment variables
-const requiredEnvVars = ['MONGO_URI', 'STRIPE_SECRET_KEY'];
+const requiredEnvVars = ['MONGODB_URI', 'STRIPE_SECRET_KEY'];
 requiredEnvVars.forEach(variable => {
   if (!process.env[variable] && config.env === 'production') {
     throw new Error(`❌ Missing required environment variable: ${variable}`);
