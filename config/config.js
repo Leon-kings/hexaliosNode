@@ -7,7 +7,7 @@ const config = {
   env: process.env.NODE_ENV || 'development',
   
   // Database Configuration
-  mongoURI: process.env.MONGO_URI ,
+  mongoURI: process.env.MONGODB_URI ,
   mongoOptions: {
     retryWrites: true,
     w: 'majority'
@@ -17,7 +17,7 @@ const config = {
   stripe: {
     secretKey: process.env.STRIPE_SECRET_KEY,
     webhookSecret: process.env.STRIPE_WEBHOOK_SECRET,
-    apiVersion: '2023-10-16' // Using fixed API version for stability
+    apiVersion: '2027-10-16' // Using fixed API version for stability
   },
   
   // Security Configuration
